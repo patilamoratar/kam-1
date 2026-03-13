@@ -1,12 +1,9 @@
 const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
-const http = require('http');
-const socketIo = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('node-pty');
 const multer = require('multer');
 
 // ========== Configuration ==========
@@ -24,17 +21,13 @@ if (!fs.existsSync(BASE_DIR)) {
 
 // ========== Express Setup ==========
 const app = express();
-const server = http.createServer(app);
-const io = socketIo(server);
 
-const sessionMiddleware = session({
+app.use(session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
-});
-
-app.use(sessionMiddleware);
+}));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
@@ -170,27 +163,9 @@ app.post('/api/files/upload', requireAuth, upload.single('file'), (req, res) => 
     } catch (e) { res.status(400).send(e.message); }
 });
 
-// ========== WebSocket for Terminal ==========
-io.use((socket, next) => sessionMiddleware(socket.request, {}, next));
-
-io.on('connection', (socket) => {
-    const req = socket.request;
-    if (!req.session || !req.session.auth) return socket.disconnect(true);
-
-    const cols = parseInt(socket.handshake.query.cols) || 80;
-    const rows = parseInt(socket.handshake.query.rows) || 24;
-    const shell = process.env.SHELL || 'bash';
-    const pty = spawn(shell, [], { name: 'xterm-color', cols, rows, cwd: BASE_DIR, env: process.env });
-
-    pty.on('data', (data) => socket.emit('data', data));
-    socket.on('data', (data) => pty.write(data));
-    socket.on('resize', (size) => pty.resize(size.cols, size.rows));
-    socket.on('disconnect', () => pty.kill());
-});
-
 // ========== Start Server ==========
-server.listen(PORT, HOST, () => {
-    console.log(`Server running at http://${HOST}:${PORT}/`);
+app.listen(PORT, HOST, () => {
+    console.log(`File explorer running at http://${HOST}:${PORT}/`);
     console.log(`Base directory: ${BASE_DIR}`);
     console.log(`Login with ${AUTH_USER} / ${AUTH_PASS}`);
 });
