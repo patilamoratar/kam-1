@@ -3,138 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes">
-    <title>Web Terminal & File Explorer</title>
-    <!-- xterm.js CSS from CDN -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <title>File Explorer</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e1e; color: #ccc; height: 100vh; display: flex; flex-direction: column; }
-        header { background: #2d2d2d; padding: 0.75rem 1rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; border-bottom: 1px solid #444; }
+        header { background: #2d2d2d; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #444; }
         header h1 { font-size: 1.5rem; margin: 0; color: #fff; }
-        .toggles { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-        .switch { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
-        .switch input { display: none; }
-        .slider { width: 40px; height: 20px; background: #555; border-radius: 20px; position: relative; transition: 0.2s; }
-        .slider::before { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 1px; left: 1px; transition: 0.2s; }
-        input:checked + .slider { background: #4caf50; }
-        input:checked + .slider::before { transform: translateX(20px); }
-        .toggle-label { font-size: 1rem; color: #fff; }
-        main { flex: 1; display: flex; flex-direction: row; overflow: hidden; padding: 0.5rem; gap: 0.5rem; background: #1e1e1e; }
-        .panel { background: #2d2d2d; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; transition: width 0.2s; }
-        .panel.terminal-panel { flex: 1 1 50%; }
-        .panel.storage-panel { flex: 1 1 50%; }
-        .panel.hidden { display: none; }
-        .panel-header { background: #3c3c3c; padding: 0.5rem 1rem; font-weight: bold; border-bottom: 1px solid #555; color: #fff; }
-        .terminal-container { height: 100%; padding: 0.5rem; background: #1e1e1e; }
-        #terminal { height: 100%; width: 100%; }
-        .file-browser { padding: 0.5rem; overflow-y: auto; height: 100%; }
-        .file-list { list-style: none; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid #444; }
-        .file-item a, .file-item span { color: #ccc; text-decoration: none; cursor: pointer; }
-        .file-item .name { flex: 1; }
-        .file-item .size { color: #888; margin-right: 1rem; }
-        .file-item button { background: #0e639c; border: none; color: white; padding: 0.25rem 0.75rem; border-radius: 3px; cursor: pointer; }
-        .file-item button:hover { background: #1177bb; }
-        .upload-form { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .upload-form input[type="file"] { background: #3c3c3c; color: #ccc; border: 1px solid #555; padding: 0.3rem; border-radius: 3px; flex: 1; }
-        .upload-form button { background: #0e639c; border: none; color: white; padding: 0.5rem 1rem; border-radius: 3px; cursor: pointer; }
-        .path-bar { background: #3c3c3c; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 3px; word-break: break-all; }
+        .logout { background: #d9534f; color: white; border: none; padding: 0.4rem 1rem; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 0.9rem; }
+        .logout:hover { background: #c9302c; }
+        main { flex: 1; padding: 1rem; overflow: auto; background: #1e1e1e; }
+        .file-browser { background: #2d2d2d; border-radius: 6px; padding: 1rem; max-width: 1200px; margin: 0 auto; }
+        .path-bar { background: #3c3c3c; padding: 0.5rem 1rem; border-radius: 4px; margin-bottom: 1rem; word-break: break-all; }
         .path-bar span { color: #888; }
         .path-bar .current-path { color: #4caf50; }
-        /* Mobile stacking */
-        @media (max-width: 768px) {
-            main { flex-direction: column; }
-            .panel.terminal-panel, .panel.storage-panel { flex: 1 1 auto; }
+        .path-bar a { color: #4caf50; text-decoration: none; }
+        .path-bar a:hover { text-decoration: underline; }
+        .file-list { list-style: none; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #444; }
+        .file-item:hover { background: #3c3c3c; }
+        .file-item .name { flex: 1; cursor: pointer; }
+        .file-item .name i { margin-right: 0.5rem; }
+        .file-item .size { color: #888; margin-right: 1rem; min-width: 80px; text-align: right; }
+        .file-item button { background: #0e639c; border: none; color: white; padding: 0.25rem 0.75rem; border-radius: 3px; cursor: pointer; }
+        .file-item button:hover { background: #1177bb; }
+        .upload-form { margin-top: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+        .upload-form input[type="file"] { background: #3c3c3c; color: #ccc; border: 1px solid #555; padding: 0.5rem; border-radius: 3px; flex: 1; min-width: 200px; }
+        .upload-form button { background: #0e639c; border: none; color: white; padding: 0.5rem 1.5rem; border-radius: 3px; cursor: pointer; font-size: 1rem; }
+        .upload-form button:hover { background: #1177bb; }
+        @media (max-width: 600px) {
+            .file-item { flex-wrap: wrap; }
+            .file-item .size { min-width: auto; }
+            .file-item button { margin-top: 0.25rem; }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>Web Terminal & File Explorer</h1>
-        <div class="toggles">
-            <label class="switch">
-                <input type="checkbox" id="toggle-terminal" checked>
-                <span class="slider"></span>
-                <span class="toggle-label">Terminal</span>
-            </label>
-            <label class="switch">
-                <input type="checkbox" id="toggle-storage" checked>
-                <span class="slider"></span>
-                <span class="toggle-label">Storage</span>
-            </label>
-        </div>
+        <h1>File Explorer – /root</h1>
+        <a href="/logout" class="logout">Logout</a>
     </header>
     <main>
-        <div class="panel terminal-panel" id="terminal-panel">
-            <div class="panel-header">Terminal ({{user}}@host: /root)</div>
-            <div class="terminal-container">
-                <div id="terminal"></div>
-            </div>
-        </div>
-        <div class="panel storage-panel" id="storage-panel">
-            <div class="panel-header">File Explorer - /root</div>
-            <div class="file-browser" id="file-browser">
-                <div class="path-bar" id="path-bar"></div>
-                <ul class="file-list" id="file-list"></ul>
-                <div class="upload-form">
-                    <input type="file" id="upload-file">
-                    <button id="upload-btn">Upload</button>
-                </div>
+        <div class="file-browser">
+            <div class="path-bar" id="path-bar"></div>
+            <ul class="file-list" id="file-list"></ul>
+            <div class="upload-form">
+                <input type="file" id="upload-file">
+                <button id="upload-btn">Upload</button>
             </div>
         </div>
     </main>
 
-    <!-- Socket.io client and xterm.js -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
     <script>
         (function() {
-            // ---------- Toggle switches ----------
-            const terminalPanel = document.getElementById('terminal-panel');
-            const storagePanel = document.getElementById('storage-panel');
-            const toggleTerm = document.getElementById('toggle-terminal');
-            const toggleStore = document.getElementById('toggle-storage');
-
-            toggleTerm.addEventListener('change', (e) => {
-                terminalPanel.classList.toggle('hidden', !e.target.checked);
-                if (term) setTimeout(() => term.fit(), 50);  // fit after visibility change
-            });
-            toggleStore.addEventListener('change', (e) => {
-                storagePanel.classList.toggle('hidden', !e.target.checked);
-            });
-
-            // ---------- Terminal ----------
-            const term = new Terminal({ cursorBlink: true, theme: { background: '#1e1e1e' } });
-            term.open(document.getElementById('terminal'));
-
-            // Connect socket.io with terminal size
-            const socket = io({
-                query: {
-                    cols: term.cols,
-                    rows: term.rows
-                }
-            });
-
-            socket.on('data', (data) => term.write(data));
-            term.onData((data) => socket.emit('data', data));
-
-            // Resize handling
-            const resizeObserver = new ResizeObserver(() => {
-                const dims = { cols: term.cols, rows: term.rows };
-                socket.emit('resize', dims);
-            });
-            resizeObserver.observe(term.element);
-
-            // Also listen to window resize for extra safety
-            window.addEventListener('resize', () => {
-                setTimeout(() => {
-                    socket.emit('resize', { cols: term.cols, rows: term.rows });
-                }, 200);
-            });
-
-            // ---------- File Explorer ----------
             let currentPath = '';  // relative to /root
 
+            // Load directory listing
             function loadFiles(path) {
                 fetch(`/api/files?path=${encodeURIComponent(path)}`, { credentials: 'include' })
                     .then(res => res.json())
@@ -143,9 +66,10 @@
                         renderPath(data.path);
                         renderFiles(data.files);
                     })
-                    .catch(err => console.error(err));
+                    .catch(err => console.error('Error loading files:', err));
             }
 
+            // Render path breadcrumbs
             function renderPath(relPath) {
                 const pb = document.getElementById('path-bar');
                 const parts = relPath ? relPath.split('/') : [];
@@ -153,11 +77,11 @@
                 let html = '<span>root</span> / ';
                 parts.forEach((part, i) => {
                     cumulative += (cumulative ? '/' : '') + part;
-                    html += `<a href="#" data-path="${cumulative}" class="dir-link">${part}</a> / `;
+                    html += `<a href="#" data-path="${cumulative}">${part}</a> / `;
                 });
                 pb.innerHTML = html.slice(0, -2); // remove trailing ' / '
-                // Attach click handlers to dir-links
-                document.querySelectorAll('.dir-link').forEach(link => {
+                // Attach click handlers to breadcrumb links
+                document.querySelectorAll('.path-bar a').forEach(link => {
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
                         loadFiles(link.dataset.path);
@@ -165,35 +89,43 @@
                 });
             }
 
+            // Render file list
             function renderFiles(files) {
                 const list = document.getElementById('file-list');
                 list.innerHTML = '';
+
                 // Parent directory link (if not at root)
                 if (currentPath !== '') {
                     const parent = document.createElement('li');
                     parent.className = 'file-item';
-                    parent.innerHTML = `<span class="name">📁 <a href="#" data-path="${currentPath.split('/').slice(0,-1).join('/')}">..</a></span><span></span>`;
+                    parent.innerHTML = `
+                        <span class="name"><i>📁</i> <a href="#" data-path="${currentPath.split('/').slice(0,-1).join('/')}">..</a></span>
+                        <span class="size"></span>
+                        <span></span>
+                    `;
                     list.appendChild(parent);
                     parent.querySelector('a').addEventListener('click', (e) => {
                         e.preventDefault();
                         loadFiles(parent.querySelector('a').dataset.path);
                     });
                 }
+
+                // Files and directories
                 files.forEach(f => {
                     const item = document.createElement('li');
                     item.className = 'file-item';
                     const icon = f.type === 'directory' ? '📁' : '📄';
                     const size = f.type === 'file' ? formatBytes(f.size) : '';
 
-                    let actions = '';
+                    let downloadButton = '';
                     if (f.type === 'file') {
-                        actions = `<button class="download-btn" data-path="${currentPath ? currentPath+'/'+f.name : f.name}">Download</button>`;
+                        downloadButton = `<button class="download-btn" data-path="${currentPath ? currentPath+'/'+f.name : f.name}">Download</button>`;
                     }
 
                     item.innerHTML = `
-                        <span class="name">${icon} ${f.type === 'directory' ? '<a href="#" class="dir-link" data-path="'+(currentPath ? currentPath+'/'+f.name : f.name)+'">'+f.name+'</a>' : f.name}</span>
+                        <span class="name"><i>${icon}</i> ${f.type === 'directory' ? '<a href="#" class="dir-link" data-path="'+(currentPath ? currentPath+'/'+f.name : f.name)+'">'+f.name+'</a>' : f.name}</span>
                         <span class="size">${size}</span>
-                        ${actions}
+                        <span>${downloadButton}</span>
                     `;
 
                     if (f.type === 'directory') {
@@ -202,11 +134,13 @@
                             e.preventDefault();
                             loadFiles(link.dataset.path);
                         });
-                    } else if (f.type === 'file') {
+                    } else {
                         const btn = item.querySelector('.download-btn');
-                        btn.addEventListener('click', () => {
-                            window.location.href = `/api/files/download?path=${encodeURIComponent(currentPath ? currentPath+'/'+f.name : f.name)}`;
-                        });
+                        if (btn) {
+                            btn.addEventListener('click', () => {
+                                window.location.href = `/api/files/download?path=${encodeURIComponent(currentPath ? currentPath+'/'+f.name : f.name)}`;
+                            });
+                        }
                     }
                     list.appendChild(item);
                 });
@@ -220,10 +154,13 @@
                 return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
             }
 
-            // Upload
+            // Upload file
             document.getElementById('upload-btn').addEventListener('click', () => {
                 const fileInput = document.getElementById('upload-file');
-                if (!fileInput.files.length) return alert('Select a file');
+                if (!fileInput.files.length) {
+                    alert('Please select a file.');
+                    return;
+                }
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
                 fetch(`/api/files/upload?path=${encodeURIComponent(currentPath)}`, {
@@ -231,19 +168,21 @@
                     body: formData,
                     credentials: 'include'
                 })
-                .then(res => res.json())
+                .then(res => {
+                    if (!res.ok) throw new Error('Upload failed');
+                    return res.json();
+                })
                 .then(() => {
                     fileInput.value = '';
-                    loadFiles(currentPath);
+                    loadFiles(currentPath);  // refresh
                 })
-                .catch(err => alert('Upload failed'));
+                .catch(err => {
+                    alert('Upload failed: ' + err.message);
+                });
             });
 
             // Initial load
             loadFiles('');
-
-            // Fit terminal initially and on show
-            setTimeout(() => term.fit(), 100);
         })();
     </script>
 </body>
