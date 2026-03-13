@@ -1,0 +1,61 @@
+name: deploy
+
+on:
+  workflow_dispatch:        # manual trigger only
+
+jobs:
+  run-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360    # 6 hours max
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ----- System configuration as root -----
+      - name: Set hostname to vm-1
+        run: |
+          sudo hostnamectl set-hostname vm-1
+          echo "Hostname is now: $(hostname)"
+
+      - name: Set root password from secret
+        run: |
+          echo "root:${{ secrets.PASSWORD }}" | sudo chpasswd
+          echo "Root password updated."
+
+      # ----- Prepare /root/cli -----
+      - name: Create /root/cli directory
+        run: |
+          sudo mkdir -p /root/cli
+          sudo chown -R $USER:$USER /root/cli   # make it writable by current user for copying
+
+      - name: Copy code to /root/cli
+        run: |
+          if [ -d "cli" ]; then
+            cp -r cli/* /root/cli/
+          else
+            echo "⚠️ No 'cli' folder found – copying entire repository."
+            cp -r . /root/cli/
+          fi
+
+      # ----- Run everything as root inside /root/cli -----
+      - name: Become root and start application
+        run: |
+          sudo su - << 'EOF'
+          cd /root/cli
+          npm install -g pm2
+          npm install
+          pm2 start index.js --name web-terminal
+          pm2 save
+          pm2 list
+          EOF
+
+      - name: Show PM2 logs (optional)
+        run: |
+          sudo pm2 logs web-terminal --lines 20 --nostream
+
+      - name: Keep runner alive for 6 hours
+        run: |
+          echo "✅ Application is running as root on host 'vm-1'. This job will stay alive for 6 hours."
+          echo "To stop early, cancel the workflow from the GitHub UI."
+          sleep 21600   # 6 hours = 21600 seconds
