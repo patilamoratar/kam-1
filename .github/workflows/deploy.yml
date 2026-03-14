@@ -3,9 +3,14 @@ name: Deploy
 on:
   workflow_dispatch:
 
+# Cancel any in-progress runs and set write permissions for deleting old runs
 concurrency:
   group: deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+permissions:
+  actions: write   # Required to delete workflow runs
+  contents: read   # Default for checking out code
 
 jobs:
   deploy-vm:
@@ -13,6 +18,30 @@ jobs:
     timeout-minutes: 360   # 6 hours maximum job time
 
     steps:
+      # ------------------------------------------------------------
+      # 0. DELETE ALL COMPLETED PREVIOUS WORKFLOW RUNS (except current)
+      # ------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Delete all completed previous workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Fetching all completed runs for this workflow (excluding current)..."
+          # List all runs for this workflow, filter by status 'completed', and exclude current run
+          gh run list --workflow "${{ github.workflow }}" \
+                      --repo "${{ github.repository }}" \
+                      --limit 1000 \
+                      --json databaseId,status \
+            | jq -r --arg current_run_id "${{ github.run_id }}" \
+                    '.[] | select(.status=="completed" and (.databaseId | tostring) != $current_run_id) | .databaseId' \
+            | while read run_id; do
+                echo "Deleting run $run_id"
+                gh run delete "$run_id" --repo "${{ github.repository }}" || echo "Failed to delete $run_id (maybe already gone)"
+              done
+          echo "✅ Deletion complete."
+
       # ------------------------------------------------------------
       # 1. SET HOSTNAME
       # ------------------------------------------------------------
@@ -164,7 +193,34 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 7. KEEP RUNNER ALIVE FOR 6 HOURS
+      # 7. INSTALL NODE.JS 20 (required for npm)
+      # ------------------------------------------------------------
+      - name: Install Node.js 20
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          node --version
+          npm --version
+
+      # ------------------------------------------------------------
+      # 8. INSTALL GLOBAL NPM PACKAGE
+      # ------------------------------------------------------------
+      - name: Install global npm package @qwen-code/qwen-code@latest
+        run: |
+          sudo npm install -g @qwen-code/qwen-code@latest
+          echo "✅ Global package installed."
+
+      # ------------------------------------------------------------
+      # 9. CREATE ALIAS 'c' FOR ROOT
+      # ------------------------------------------------------------
+      - name: Create alias c to cd /root/container/
+        run: |
+          sudo mkdir -p /root/container   # Ensure directory exists
+          echo "alias c='cd /root/container'" | sudo tee -a /root/.bashrc
+          echo "✅ Alias 'c' added to /root/.bashrc"
+
+      # ------------------------------------------------------------
+      # 10. KEEP RUNNER ALIVE FOR 6 HOURS
       # ------------------------------------------------------------
       - name: Keep alive for 6 hours
         run: |
