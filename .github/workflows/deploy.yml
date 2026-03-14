@@ -1,61 +1,172 @@
-name: deploy
+name: Deploy
 
 on:
-  workflow_dispatch:        # manual trigger only
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
-  run-vm:
+  deploy-vm:
     runs-on: ubuntu-latest
-    timeout-minutes: 360    # 6 hours max
+    timeout-minutes: 360   # 6 hours maximum job time
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ----- System configuration as root -----
-      - name: Set hostname to vm-1
+      # ------------------------------------------------------------
+      # 1. SET HOSTNAME
+      # ------------------------------------------------------------
+      - name: Set hostname (vm-1)
         run: |
           sudo hostnamectl set-hostname vm-1
-          echo "Hostname is now: $(hostname)"
+          echo "127.0.0.1 vm-1" | sudo tee -a /etc/hosts
 
-      - name: Set root password from secret
+      # ------------------------------------------------------------
+      # 2. INSTALL AND CONFIGURE SSH
+      # ------------------------------------------------------------
+      - name: Install and configure SSH
+        env:
+          PASSWORD: ${{ secrets.PASSWORD }}
         run: |
-          echo "root:${{ secrets.PASSWORD }}" | sudo chpasswd
-          echo "Root password updated."
-
-      # ----- Prepare /root/cli -----
-      - name: Create /root/cli directory
-        run: |
-          sudo mkdir -p /root/cli
-          sudo chown -R $USER:$USER /root/cli   # make it writable by current user for copying
-
-      - name: Copy code to /root/cli
-        run: |
-          if [ -d "cli" ]; then
-            cp -r cli/* /root/cli/
-          else
-            echo "⚠️ No 'cli' folder found – copying entire repository."
-            cp -r . /root/cli/
+          if [ -z "$PASSWORD" ]; then
+            echo "::error::PASSWORD secret is not set."
+            exit 1
           fi
 
-      # ----- Run everything as root inside /root/cli -----
-      - name: Become root and start application
-        run: |
-          sudo su - << 'EOF'
-          cd /root/cli
-          npm install -g pm2
-          npm install
-          pm2 start index.js --name web-terminal
-          pm2 save
-          pm2 list
-          EOF
+          sudo apt-get update -y
+          sudo apt-get install -y openssh-server
 
-      - name: Show PM2 logs (optional)
-        run: |
-          sudo pm2 logs web-terminal --lines 20 --nostream
+          echo "root:$PASSWORD" | sudo chpasswd
 
-      - name: Keep runner alive for 6 hours
+          sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+          sudo systemctl restart ssh
+
+          if systemctl is-active --quiet ssh; then
+            echo "✅ SSH service is running."
+          else
+            echo "::error::SSH failed to start."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # 3. REMOVE OLD TAILSCALE DEVICE (vm-1)
+      # ------------------------------------------------------------
+      - name: Remove old Tailscale device (vm-1)
+        env:
+          TS_API_KEY: ${{ secrets.TAILSCALE_API_KEY }}
         run: |
-          echo "✅ Application is running as root on host 'vm-1'. This job will stay alive for 6 hours."
-          echo "To stop early, cancel the workflow from the GitHub UI."
-          sleep 21600   # 6 hours = 21600 seconds
+          if [ -z "$TS_API_KEY" ]; then
+            echo "::error::TAILSCALE_API_KEY secret is not set."
+            exit 1
+          fi
+
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+          DEVICES=$(curl -s -u "$TS_API_KEY:" "https://api.tailscale.com/api/v2/tailnet/-/devices")
+          DEVICE_ID=$(echo "$DEVICES" | jq -r '.devices[]? | select(.hostname == "vm-1") | .id' | head -n 1)
+
+          if [ -n "$DEVICE_ID" ] && [ "$DEVICE_ID" != "null" ]; then
+            curl -s -X DELETE -u "$TS_API_KEY:" "https://api.tailscale.com/api/v2/device/$DEVICE_ID"
+            echo "✅ Removed old device with ID $DEVICE_ID"
+            sleep 3
+          else
+            echo "ℹ️ No existing device named vm-1 found."
+          fi
+
+      # ------------------------------------------------------------
+      # 4. INSTALL AND CONFIGURE TAILSCALE
+      # ------------------------------------------------------------
+      - name: Install and configure Tailscale
+        env:
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        run: |
+          if [ -z "$TS_AUTHKEY" ]; then
+            echo "::error::TAILSCALE_AUTHKEY secret is not set."
+            exit 1
+          fi
+
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="vm-1"
+          sleep 5   # Give time for the device to register
+
+      # ------------------------------------------------------------
+      # 5. ASSIGN STATIC IP VIA TAILSCALE API
+      # ------------------------------------------------------------
+      - name: Assign static IP to vm-1 using API
+        env:
+          TS_API_KEY: ${{ secrets.TAILSCALE_API_KEY }}
+          STATIC_IP: "100.80.1.100"   # Change this to your desired static IP
+        run: |
+          if [ -z "$TS_API_KEY" ]; then
+            echo "::error::TAILSCALE_API_KEY secret is not set."
+            exit 1
+          fi
+
+          echo "Fetching device ID for vm-1..."
+          DEVICES=$(curl -s -u "$TS_API_KEY:" "https://api.tailscale.com/api/v2/tailnet/-/devices")
+          DEVICE_ID=$(echo "$DEVICES" | jq -r '.devices[]? | select(.hostname == "vm-1") | .id' | head -n 1)
+
+          if [ -z "$DEVICE_ID" ] || [ "$DEVICE_ID" = "null" ]; then
+            echo "::error::Could not find device vm-1 in Tailscale network."
+            exit 1
+          fi
+
+          echo "Found device ID: $DEVICE_ID"
+
+          RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/setip_response -X POST \
+            -u "$TS_API_KEY:" \
+            -H "Content-Type: application/json" \
+            -d "{\"ipv4\": \"$STATIC_IP\"}" \
+            "https://api.tailscale.com/api/v2/device/$DEVICE_ID/ip")
+
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "✅ Successfully set static IP to $STATIC_IP"
+          else
+            echo "::error::Failed to set static IP. HTTP $RESPONSE"
+            cat /tmp/setip_response
+            exit 1
+          fi
+
+          echo "Tailscale IP address:"
+          sudo tailscale ip -4
+          echo "TAILSCALE_IP=$STATIC_IP" >> $GITHUB_ENV
+
+      # ------------------------------------------------------------
+      # 6. INSTALL AND CONFIGURE CLOUDFLARE TUNNEL
+      # ------------------------------------------------------------
+      - name: Install and setup Cloudflare Tunnel
+        env:
+          CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_TOKEN secret is not set."
+            exit 1
+          fi
+
+          sudo mkdir -p --mode=0755 /usr/share/keyrings
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+          sudo apt-get update
+          sudo apt-get install -y cloudflared
+
+          sudo cloudflared service install "$CLOUDFLARE_TOKEN"
+
+          sleep 5
+          if systemctl is-active --quiet cloudflared; then
+            echo "✅ Cloudflare Tunnel is running."
+          else
+            echo "::error::Cloudflare Tunnel failed to start."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # 7. KEEP RUNNER ALIVE FOR 6 HOURS
+      # ------------------------------------------------------------
+      - name: Keep alive for 6 hours
+        run: |
+          echo "All services configured. Keeping runner alive for 6 hours..."
+          sleep 360m   # 360 minutes = 6 hours
